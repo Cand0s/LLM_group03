@@ -1,3 +1,0 @@
-# Ignore the ChromaDB directory where the vector database is stored
-/diem_chroma_db/
-/__pycache__/

@@ -12,10 +12,12 @@ from langgraph.graph import StateGraph, END
 from typing import TypedDict, List, Literal
 from pydantic import BaseModel, Field
 
+
+
 # ──────────────────────────────────────────────
-# 1. INIZIALIZZAZIONE MODELLI E DB
+# 1. MODEL AND DB INITIALIZATION
 # ──────────────────────────────────────────────
-print("Inizializzazione modelli...")
+print("Initializing models...")
 
 embeddings = HuggingFaceEmbeddings(
     model_name="BAAI/bge-m3",
@@ -29,27 +31,26 @@ vectorstore = Chroma(
 )
 retriever = vectorstore.as_retriever(search_kwargs={"k": 20})
 
-# LLM principale (generazione)
+# Main LLM (generation)
 llm = ChatOllama(model="llama3.1", temperature=0.1)
-# LLM per i grader (più veloce, basta classificare)
+# LLM for graders (faster; classification only)
 llm_judge = ChatOllama(model="llama3.1", temperature=0.0)
-
-print("Modelli caricati!\n")
+print("Models loaded!\n")
 
 
 # ──────────────────────────────────────────────
-# 2. STATO DEL GRAFO
+# 2. GRAPH STATE
 # ──────────────────────────────────────────────
 class AgentState(TypedDict):
-    question: str                   # domanda originale
-    rewritten_question: str         # domanda riscritta per il retrieval
-    chat_history: List              # storico conversazione
-    documents: List                 # documenti recuperati
-    answer: str                     # risposta generata
+    question: str                   # original question
+    rewritten_question: str         # question rewritten for retrieval
+    chat_history: List              # conversation history
+    documents: List                 # retrieved documents
+    answer: str                     # generated answer
     domain_check: str               # "in_domain" | "out_of_domain"
     retrieval_grade: str            # "relevant" | "not_relevant"
     hallucination_grade: str        # "grounded" | "hallucinated"
-    retry_count: int                # numero di tentativi di retrieval
+    retry_count: int                # number of retrieval attempts
 
 
 # ──────────────────────────────────────────────
@@ -73,17 +74,17 @@ Classification:""")
 
 
 def guardrail_input(state: AgentState) -> AgentState:
-    """Guardrail di input: rileva domande fuori dominio."""
+    """Input guardrail: detect out-of-domain questions."""
     chain = domain_check_prompt | llm_judge | StrOutputParser()
     result = chain.invoke({"question": state["question"]}).strip().lower()
     
-    # Normalizza la risposta
+    # Normalize the response
     if "out" in result or "out_of_domain" in result:
         domain = "out_of_domain"
     else:
         domain = "in_domain"
     
-    print(f"[GUARDRAIL IN] Classificazione: {domain}")
+    print(f"[GUARDRAIL IN] Classification: {domain}")
     return {**state, "domain_check": domain}
 
 
@@ -94,7 +95,7 @@ def route_after_domain_check(state: AgentState) -> Literal["rewrite_query", "out
 
 
 # ──────────────────────────────────────────────
-# 4. QUERY REWRITER – contestualizza domande di follow-up
+# 4. QUERY REWRITER – contextualize follow-up questions
 # ──────────────────────────────────────────────
 rewrite_prompt = ChatPromptTemplate.from_template("""
 You are a STRICTLY SYNTACTIC linguistic analyzer. Your ONLY task is to make the "Follow-up Question" self-contained by resolving pronouns from the chat history.
@@ -120,17 +121,17 @@ Standalone Question:""")
 
 
 def rewrite_query(state: AgentState) -> AgentState:
-    """Riscrive la domanda tenendo conto dello storico."""
+    """Rewrite the question using the chat history."""
     history = state.get("chat_history", [])
     
-    # Se non c'è storia, non serve riscrivere
+    # If there's no history, there's nothing to rewrite
     if not history:
         return {**state, "rewritten_question": state["question"]}
     
-    # Formatta la history come stringa
+    # Format history as a string
     history_str = "\n".join([
         f"User: {m.content}" if isinstance(m, HumanMessage) else f"Bot: {m.content}"
-        for m in history[-6:]  # ultimi 3 scambi
+        for m in history[-6:]  # last 3 turns
     ])
     
     chain = rewrite_prompt | llm_judge | StrOutputParser()
@@ -139,19 +140,19 @@ def rewrite_query(state: AgentState) -> AgentState:
         "question": state["question"]
     }).strip()
     
-    print(f"[QUERY REWRITER] Originale: '{state['question']}'")
-    print(f"[QUERY REWRITER] Riscritta: '{rewritten}'")
+    print(f"[QUERY REWRITER] Original: '{state['question']}'")
+    print(f"[QUERY REWRITER] Rewritten: '{rewritten}'")
     return {**state, "rewritten_question": rewritten}
 
 
 # ──────────────────────────────────────────────
-# 5. RETRIEVAL con Re-ranking
+# 5. RETRIEVAL with re-ranking
 # ──────────────────────────────────────────────
 def retrieve_and_rerank(state: AgentState) -> AgentState:
-    """Recupera documenti e applica re-ranking."""
+    """Retrieve documents and apply re-ranking."""
     query = state.get("rewritten_question", state["question"])
     
-    # Retrieval iniziale
+    # Initial retrieval
     initial_docs = retriever.invoke(query)
     
     # Re-ranking
@@ -161,15 +162,15 @@ def retrieve_and_rerank(state: AgentState) -> AgentState:
     
     top_docs = [doc for doc, score in ranked[:5]]
     
-    print(f"\n[RETRIEVAL] Top 5 documenti dopo re-ranking:")
-    for i, (doc, score) in enumerate(ranked[:5]):
-        print(f"  {i+1}. Score: {score:.2f} | Fonte: {doc.metadata.get('source', 'N/A')}")
+    print(f"\n[RETRIEVAL] Top 3 documents after re-ranking:")
+    for i, (doc, score) in enumerate(ranked[:3]):
+        print(f"  {i+1}. Score: {score:.2f} | Source: {doc.metadata.get('source', 'N/A')}")
     
     return {**state, "documents": top_docs}
 
 
 # ──────────────────────────────────────────────
-# 6. DOCUMENT GRADER – valuta rilevanza dei documenti
+# 6. DOCUMENT GRADER – grade document relevance
 # ──────────────────────────────────────────────
 doc_grade_prompt = ChatPromptTemplate.from_template("""
 You are a relevance grader. Evaluate if the retrieved document contains 
@@ -185,7 +186,7 @@ Retrieved Document:
 Grade:""")
 
 def grade_documents(state: AgentState) -> AgentState:
-    """Valuta se i documenti recuperati sono rilevanti."""
+    """Evaluate whether retrieved documents are relevant."""
     query = state.get("rewritten_question", state["question"])
     docs = state["documents"]
     
@@ -195,13 +196,13 @@ def grade_documents(state: AgentState) -> AgentState:
     for doc in docs:
         grade = chain.invoke({
             "question": query,
-            "document": doc.page_content[:500]  # usa i primi 500 caratteri
+            "document": doc.page_content[:500]  # use the first 500 chars
         }).strip().lower()
         
         if "relevant" in grade and "not" not in grade:
             relevant_docs.append(doc)
     
-    print(f"[DOC GRADER] {len(relevant_docs)}/{len(docs)} documenti rilevanti")
+    print(f"[DOC GRADER] {len(relevant_docs)}/{len(docs)} relevant documents")
     
     retrieval_grade = "relevant" if relevant_docs else "not_relevant"
     return {**state, "documents": relevant_docs, "retrieval_grade": retrieval_grade}
@@ -215,12 +216,12 @@ def route_after_retrieval(state: AgentState) -> Literal["generate", "retry_or_fa
     elif retry_count < 2:
         return "retry_or_fallback"
     else:
-        # Dopo 2 tentativi, genera comunque (con risposta di fallback)
+        # After 2 attempts, generate anyway (fallback behavior)
         return "generate"
 
 
 # ──────────────────────────────────────────────
-# 7. RETRY – riformula la query e riprova
+# 7. RETRY – reformulate the query and retry
 # ──────────────────────────────────────────────
 retry_prompt = ChatPromptTemplate.from_template("""
 The previous search did not return relevant results for this question.
@@ -233,21 +234,21 @@ Return ONLY the new search query, nothing else.
 Alternative query:""")
 
 def retry_retrieval(state: AgentState) -> AgentState:
-    """Genera una query alternativa e riprova il retrieval."""
+    """Generate an alternative query and retry retrieval."""
     retry_count = state.get("retry_count", 0) + 1
-    print(f"[RETRY] Tentativo {retry_count}...")
+    print(f"[RETRY] Attempt {retry_count}...")
     
     chain = retry_prompt | llm_judge | StrOutputParser()
     new_query = chain.invoke({"question": state["rewritten_question"]}).strip()
     
-    print(f"[RETRY] Nuova query: '{new_query}'")
+    print(f"[RETRY] New query: '{new_query}'")
     
-    # Retrieval con la nuova query
+    # Retrieval with the new query
     initial_docs = retriever.invoke(new_query)
     pairs = [[new_query, doc.page_content] for doc in initial_docs]
     scores = reranker.predict(pairs)
     ranked = sorted(zip(initial_docs, scores), key=lambda x: x[1], reverse=True)
-    top_docs = [doc for doc, score in ranked[:5]]
+    top_docs = [doc for doc, score in ranked[:3]]
     
     return {
         **state,
@@ -259,7 +260,7 @@ def retry_retrieval(state: AgentState) -> AgentState:
 
 
 # ──────────────────────────────────────────────
-# 8. GENERAZIONE risposta
+# 8. ANSWER GENERATION
 # ──────────────────────────────────────────────
 system_template = """You are the official AI assistant for DIEM - University of Salerno.
 
@@ -268,11 +269,11 @@ CRITICAL INSTRUCTIONS:
 2. If the question asks about a SPECIFIC person by name, use ONLY 
    information about that exact person. NEVER substitute with information 
    about a different person, even if their data appears in the context.
-3. If the specific person is not found in the context, say clearly:
-   "Non ho trovato informazioni su [nome] nel database. Ti consiglio di 
-   visitare docenti.unisa.it per informazioni aggiornate."
+4. If the specific person is not found in the context, say clearly (in the user's language):
+    "I couldn't find information about [name] in the database. I recommend visiting docenti.unisa.it for up-to-date information."
 4. Never use phrases like "Based on the context" or "According to...".
 5. Always respond in the same language the user used.
+
 """
 
 generation_prompt = ChatPromptTemplate.from_messages([
@@ -282,7 +283,7 @@ generation_prompt = ChatPromptTemplate.from_messages([
 ])
 
 def generate_answer(state: AgentState) -> AgentState:
-    """Genera la risposta finale."""
+    """Generate the final answer."""
     docs = state.get("documents", [])
     
     if not docs:
@@ -301,7 +302,7 @@ def generate_answer(state: AgentState) -> AgentState:
 
 
 # ──────────────────────────────────────────────
-# 9. GUARDRAIL OUT – Hallucination Checker
+# 9. GUARDRAIL OUT – hallucination checker
 # ──────────────────────────────────────────────
 hallucination_prompt = ChatPromptTemplate.from_template("""
 You are a fact-checker. Determine if the assistant's answer is grounded 
@@ -319,7 +320,7 @@ Assistant's Answer:
 Grade:""")
 
 def check_hallucination(state: AgentState) -> AgentState:
-    """Guardrail di output: verifica allucinazioni."""
+    """Output guardrail: check for hallucinations."""
     docs = state.get("documents", [])
     
     if not docs:
@@ -329,7 +330,7 @@ def check_hallucination(state: AgentState) -> AgentState:
     
     chain = hallucination_prompt | llm_judge | StrOutputParser()
     grade = chain.invoke({
-        "context": context[:3000],  # limita per performance
+        "context": context[:3000],  # limit for performance
         "answer": state["answer"]
     }).strip().lower()
     
@@ -347,10 +348,10 @@ def route_after_hallucination_check(state: AgentState) -> Literal["end", "regene
 
 
 # ──────────────────────────────────────────────
-# 10. NODI SPECIALI
+# 10. SPECIAL NODES
 # ──────────────────────────────────────────────
 def out_of_domain_response(state: AgentState) -> AgentState:
-    """Risposta per domande fuori dominio."""
+    """Answer for out-of-domain questions."""
     answer = ("I'm the DIEM assistant and I can only answer questions about "
               "the Department of Information Engineering at the University of Salerno. "
               "Your question seems to be outside my area of knowledge. "
@@ -359,8 +360,8 @@ def out_of_domain_response(state: AgentState) -> AgentState:
 
 
 def regenerate_answer(state: AgentState) -> AgentState:
-    """Rigenera la risposta in modo più cauto."""
-    print("[REGENERATE] Risposta allucinata, rigenero con istruzioni più restrittive...")
+    """Regenerate the answer more conservatively."""
+    print("[REGENERATE] Hallucinated answer; regenerating with stricter instructions...")
     docs = state.get("documents", [])
     context = "\n\n".join([doc.page_content for doc in docs]) if docs else ""
     
@@ -382,11 +383,11 @@ def regenerate_answer(state: AgentState) -> AgentState:
 
 
 # ──────────────────────────────────────────────
-# 11. COSTRUZIONE DEL GRAFO (LangGraph)
+# 11. GRAPH CONSTRUCTION (LangGraph)
 # ──────────────────────────────────────────────
 workflow = StateGraph(AgentState)
 
-# Aggiunta nodi
+# Add nodes
 workflow.add_node("guardrail_input",        guardrail_input)
 workflow.add_node("out_of_domain_response", out_of_domain_response)
 workflow.add_node("rewrite_query",          rewrite_query)
@@ -400,7 +401,7 @@ workflow.add_node("regenerate",             regenerate_answer)
 # Entry point
 workflow.set_entry_point("guardrail_input")
 
-# Edges condizionali
+# Conditional edges
 workflow.add_conditional_edges(
     "guardrail_input",
     route_after_domain_check,
@@ -434,12 +435,12 @@ workflow.add_conditional_edges(
 )
 workflow.add_edge("regenerate", END)
 
-# Compila il grafo
+# Compile the graph
 app = workflow.compile()
 
 
 # ──────────────────────────────────────────────
-# 12. LOOP PRINCIPALE
+# 12. MAIN LOOP
 # ──────────────────────────────────────────────
 if __name__ == "__main__":
     print("--- DIEM Agentic RAG Chatbot ---")
@@ -454,7 +455,7 @@ if __name__ == "__main__":
         if user_input.lower() in ["exit", "quit"]:
             break
         
-        # Stato iniziale
+        # Initial state
         initial_state = AgentState(
             question=user_input,
             rewritten_question=user_input,
@@ -467,7 +468,7 @@ if __name__ == "__main__":
             retry_count=0
         )
         
-        # Esegui il grafo
+        # Run the graph
         print("-" * 50)
         final_state = app.invoke(initial_state)
         print("-" * 50)
@@ -475,10 +476,10 @@ if __name__ == "__main__":
         answer = final_state["answer"]
         print(f"\nBot: {answer}\n")
         
-        # Aggiorna la chat history
+        # Update chat history
         chat_history.append(HumanMessage(content=user_input))
         chat_history.append(AIMessage(content=answer))
         
-        # Mantieni la history gestibile (ultimi 10 scambi)
+        # Keep history manageable (last 10 turns)
         if len(chat_history) > 20:
             chat_history = chat_history[-20:]

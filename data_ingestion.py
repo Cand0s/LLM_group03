@@ -13,20 +13,20 @@ import pypdf
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings#, embeddings
 
-# Risolve i conflitti delle librerie Intel MKL su Windows
+# Fixes Intel MKL library conflicts on Windows
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # ---------------------------------------------------------------------------
-# CONFIGURAZIONE
+# CONFIGURATION
 # ---------------------------------------------------------------------------
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 HEADERS = {"User-Agent": "DiemBot_Student_Project/1.0"}
 
-# Sezioni principali del sito DIEM
+# Main sections of the DIEM website
 DIEM_SEED_URLS = [
     "https://www.diem.unisa.it/home",
     "https://www.diem.unisa.it/dipartimento",
@@ -56,7 +56,7 @@ DIEM_LABORATORI_URLS = [
 ]
 
 MAX_DEPTH = 3
-CRAWL_DELAY = 0.3  # secondi tra una richiesta e l'altra
+CRAWL_DELAY = 0.3  # seconds between requests
 
 session = requests.Session()
 session.verify = False
@@ -73,21 +73,27 @@ def get(url: str, timeout: int = 10):
         return None
 
 # ---------------------------------------------------------------------------
-# PULIZIA HTML ED ESTRAZIONE LINK
+# HTML CLEANUP AND LINK EXTRACTION
 # ---------------------------------------------------------------------------
 
-def pulisci_html(html: str) -> str:
+def clean_html(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
         tag.decompose()
     for el in soup.find_all(class_=["menu", "navbar", "breadcrumb", "sidebar"]):
         el.decompose()
-    testo = soup.get_text(separator="\n")
-    righe = [r.strip() for r in testo.splitlines() if r.strip()]
-    return "\n".join(righe)
+    text = soup.get_text(separator="\n")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return "\n".join(lines)
 
 
-def estrai_link_interni(html: str, base_url: str, allowed_domains: set, corsi_scoperti: set = None, allowed_prefixes: tuple = None) -> list[str]:
+def extract_internal_links(
+    html: str,
+    base_url: str,
+    allowed_domains: set,
+    discovered_course_links: set | None = None,
+    allowed_prefixes: tuple | None = None,
+) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     links = []
     for a in soup.find_all("a", href=True):
@@ -109,8 +115,8 @@ def estrai_link_interni(html: str, base_url: str, allowed_domains: set, corsi_sc
         if allowed_prefixes and not clean.startswith(allowed_prefixes):
             continue 
         
-        if corsi_scoperti is not None and domain == "corsi.unisa.it":
-            corsi_scoperti.add(clean)
+        if discovered_course_links is not None and domain == "corsi.unisa.it":
+            discovered_course_links.add(clean)
             
         elif domain in allowed_domains:
             if full.lower().endswith(".pdf"):
@@ -121,10 +127,10 @@ def estrai_link_interni(html: str, base_url: str, allowed_domains: set, corsi_sc
     return list(set(links))
 
 # ---------------------------------------------------------------------------
-# SCRAPER PDF E CRAWLER
+# PDF SCRAPER AND CRAWLER
 # ---------------------------------------------------------------------------
 
-def scrapa_pdf(url: str) -> Document | None:
+def scrape_pdf(url: str) -> Document | None:
     r = get(url)
     if r is None:
         return None
@@ -133,15 +139,22 @@ def scrapa_pdf(url: str) -> Document | None:
         return None
     try:
         reader = pypdf.PdfReader(io.BytesIO(r.content))
-        testo = "\n".join(p.extract_text() or "" for p in reader.pages).strip()
-        if testo:
-            return Document(page_content=testo, metadata={"source": url, "type": "pdf"})
+        text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+        if text:
+            return Document(page_content=text, metadata={"source": url, "type": "pdf"})
     except Exception as e:
         print(f"    [PDF ERROR] {url} → {e}")
     return None
 
 
-def crawl(seed_urls: list[str], max_depth: int, visited: set, allowed_domains: set, corsi_scoperti: set = None, allowed_prefixes: tuple = None) -> list[Document]:
+def crawl(
+    seed_urls: list[str],
+    max_depth: int,
+    visited: set,
+    allowed_domains: set,
+    discovered_course_links: set | None = None,
+    allowed_prefixes: tuple | None = None,
+) -> list[Document]:
     documents = []
     queue = [(url, 0) for url in seed_urls]
 
@@ -165,7 +178,7 @@ def crawl(seed_urls: list[str], max_depth: int, visited: set, allowed_domains: s
         ct = r.headers.get("Content-Type", "")
 
         if "pdf" in ct.lower() or url.lower().endswith(".pdf"):
-            doc = scrapa_pdf(final_url)
+            doc = scrape_pdf(final_url)
             if doc:
                 documents.append(doc)
             time.sleep(CRAWL_DELAY)
@@ -174,16 +187,22 @@ def crawl(seed_urls: list[str], max_depth: int, visited: set, allowed_domains: s
         if "html" not in ct.lower():
             continue
 
-        testo = pulisci_html(r.text)
-        if testo:
+        text = clean_html(r.text)
+        if text:
             documents.append(Document(
-                page_content=testo,
+                page_content=text,
                 metadata={"source": final_url, "type": "html"}
             ))
 
-        # Passiamo i parametri aggiornati all'estrattore di link
+        # Pass updated parameters to the link extractor
         if depth < max_depth:
-            for link in estrai_link_interni(r.text, final_url, allowed_domains, corsi_scoperti, allowed_prefixes):
+            for link in extract_internal_links(
+                r.text,
+                final_url,
+                allowed_domains,
+                discovered_course_links,
+                allowed_prefixes,
+            ):
                 if link not in visited:
                     queue.append((link, depth + 1))
 
@@ -192,41 +211,41 @@ def crawl(seed_urls: list[str], max_depth: int, visited: set, allowed_domains: s
     return documents
 
 # ---------------------------------------------------------------------------
-# FASE 2: Docenti DIEM su docenti.unisa.it
+# PHASE 2: DIEM faculty on docenti.unisa.it
 # ---------------------------------------------------------------------------
 
-def estrai_matricole_diem(url_personale: str) -> list[str]:
-    r = get(url_personale)
+def extract_diem_staff_ids(staff_page_url: str) -> list[str]:
+    r = get(staff_page_url)
     if r is None:
         return []
 
     soup = BeautifulSoup(r.text, "html.parser")
-    matricole = set()
+    staff_ids = set()
 
     for a in soup.find_all("a", href=True):
         href = a["href"]
         if "rubrica.unisa.it/persone" in href and "matricola=" in href:
             qs = parse_qs(urlparse(href).query)
             if "matricola" in qs:
-                matricola = qs["matricola"][0].zfill(6)
-                matricole.add(matricola)
+                staff_id = qs["matricola"][0].zfill(6)
+                staff_ids.add(staff_id)
 
-    print(f"    Trovate {len(matricole)} matricole DIEM")
-    return list(matricole)
+    print(f"    Found {len(staff_ids)} DIEM staff IDs")
+    return list(staff_ids)
 
 
-DOCENTE_SEZIONI = ["home", "didattica"] 
+STAFF_SECTIONS = ["home", "didattica"] 
 
-def crawl_docente(matricola: str, visited: set) -> list[Document]:
+def crawl_staff_member(staff_id: str, visited: set) -> list[Document]:
     documents = []
 
-    for sezione in DOCENTE_SEZIONI:
-        url = f"https://docenti.unisa.it/{matricola}/{sezione}"
+    for section in STAFF_SECTIONS:
+        url = f"https://docenti.unisa.it/{staff_id}/{section}"
         if url in visited:
             continue
         visited.add(url)
 
-        print(f"    [{sezione}] {url}")
+        print(f"    [{section}] {url}")
         r = get(url)
         if r is None:
             continue
@@ -234,15 +253,15 @@ def crawl_docente(matricola: str, visited: set) -> list[Document]:
         if "html" not in r.headers.get("Content-Type", ""):
             continue
 
-        testo = pulisci_html(r.text)
-        if testo:
+        text = clean_html(r.text)
+        if text:
             documents.append(Document(
-                page_content=testo,
+                page_content=text,
                 metadata={
                     "source": r.url,
                     "type": "html",
-                    "matricola": matricola,
-                    "sezione": sezione
+                    "staff_id": staff_id,
+                    "section": section
                 }
             ))
 
@@ -251,7 +270,7 @@ def crawl_docente(matricola: str, visited: set) -> list[Document]:
             full = urljoin(url, a["href"]).split("#")[0]
             if full.lower().endswith(".pdf") and full not in visited:
                 visited.add(full)
-                doc_pdf = scrapa_pdf(full)
+                doc_pdf = scrape_pdf(full)
                 if doc_pdf:
                     documents.append(doc_pdf)
 
@@ -265,101 +284,107 @@ def crawl_docente(matricola: str, visited: set) -> list[Document]:
 
 def main():
     visited: set = set()
-    tutti_i_documenti: list[Document] = []
+    all_documents: list[Document] = []
     
-    # Creiamo il cestino per raccogliere i link dei corsi
-    corsi_scoperti: set = set()
+    # Collect course links discovered during crawling
+    discovered_course_links: set = set()
 
-    # FASE 1 – www.diem.unisa.it (Sito principale)
-    print("\n=== FASE 1: Crawl www.diem.unisa.it ===")
-    docs = crawl(DIEM_SEED_URLS, max_depth=MAX_DEPTH, visited=visited, allowed_domains={"www.diem.unisa.it"}, corsi_scoperti=corsi_scoperti)
-    print(f"  → {len(docs)} documenti DIEM estratti")
-    tutti_i_documenti.extend(docs)
+    # PHASE 1 – www.diem.unisa.it (main website)
+    print("\n=== PHASE 1: Crawl www.diem.unisa.it ===")
+    docs = crawl(
+        DIEM_SEED_URLS,
+        max_depth=MAX_DEPTH,
+        visited=visited,
+        allowed_domains={"www.diem.unisa.it"},
+        discovered_course_links=discovered_course_links,
+    )
+    print(f"  → Extracted {len(docs)} DIEM documents")
+    all_documents.extend(docs)
 
     # ---------------------------------------------------------
-    # NUOVA FASE 1.5 – Laboratori (Strict max_depth = 0)
+    # PHASE 1.5 – Laboratories (strict max_depth = 0)
     # ---------------------------------------------------------
-    print("\n=== FASE 1.5: Crawl Laboratori (Depth=0) ===")
-    docs_lab = crawl(DIEM_LABORATORI_URLS, max_depth=0, visited=visited, allowed_domains={"www.diem.unisa.it"})
-    print(f"  → {len(docs_lab)} documenti laboratori estratti")
-    tutti_i_documenti.extend(docs_lab)
+    print("\n=== PHASE 1.5: Crawl laboratories (depth=0) ===")
+    lab_docs = crawl(DIEM_LABORATORI_URLS, max_depth=0, visited=visited, allowed_domains={"www.diem.unisa.it"})
+    print(f"  → Extracted {len(lab_docs)} laboratory documents")
+    all_documents.extend(lab_docs)
     # ---------------------------------------------------------
-
     
-    # FASE 2 – docenti.unisa.it (solo docenti DIEM)
-    print("\n=== FASE 2: Docenti DIEM su docenti.unisa.it ===")
-    matricole = estrai_matricole_diem("https://www.diem.unisa.it/dipartimento/personale")
-    if matricole:
+    # PHASE 2 – docenti.unisa.it (DIEM faculty only)
+    print("\n=== PHASE 2: DIEM faculty on docenti.unisa.it ===")
+    staff_ids = extract_diem_staff_ids("https://www.diem.unisa.it/dipartimento/personale")
+    if staff_ids:
         docs = []
-        for matricola in matricole:
-            docs.extend(crawl_docente(matricola, visited))
+        for staff_id in staff_ids:
+            docs.extend(crawl_staff_member(staff_id, visited))
         
-        print(f"  → {len(docs)} documenti dai docenti")
-        tutti_i_documenti.extend(docs)
+        print(f"  → Extracted {len(docs)} faculty documents")
+        all_documents.extend(docs)
     else:
-        print("  ⚠ Nessuna matricola trovata. Controlla la pagina personale.")
+        print("  ⚠ No staff IDs found. Check the staff page.")
 
-    # FASE 3 – corsi.unisa.it
-    print("\n=== FASE 3: Crawl DINAMICO Corsi DIEM su corsi.unisa.it ===")
-    print(f"  → Trovati {len(corsi_scoperti)} link a corsi durante la Fase 1!")
+    # PHASE 3 – corsi.unisa.it
+    print("\n=== PHASE 3: Dynamic crawl of DIEM courses on corsi.unisa.it ===")
+    print(f"  → Found {len(discovered_course_links)} course links during Phase 1!")
     
-    corsi_seeds = list(corsi_scoperti)
+    course_seeds = list(discovered_course_links)
     
-    if corsi_seeds:
-        # Creiamo la "gabbia": una tupla di prefissi autorizzati
-        prefissi_autorizzati = tuple(corsi_seeds)
+    if course_seeds:
+        # Build the "fence": a tuple of allowed prefixes
+        allowed_prefixes = tuple(course_seeds)
         
-        # Passiamo i prefissi al crawler
+        # Pass prefixes to the crawler
         docs = crawl(
-            corsi_seeds, 
+            course_seeds, 
             max_depth=MAX_DEPTH, 
             visited=visited, 
             allowed_domains={"corsi.unisa.it"},
-            allowed_prefixes=prefissi_autorizzati # <--- IL RECINTO!
+            allowed_prefixes=allowed_prefixes  # <--- THE FENCE!
         )
-        print(f"  → {len(docs)} documenti dai corsi")
-        tutti_i_documenti.extend(docs)
+        print(f"  → Extracted {len(docs)} course documents")
+        all_documents.extend(docs)
     else:
-        print("  ⚠ Nessun link a corsi.unisa.it trovato sul sito del DIEM.")
+        print("  ⚠ No corsi.unisa.it course links found on the DIEM website.")
 
 
-    # Riepilogo
-    print(f"\n=== TOTALE: {len(tutti_i_documenti)} documenti raccolti ===")
-    conteggio: dict = {}
-    for d in tutti_i_documenti:
+    # Summary
+    print(f"\n=== TOTAL: {len(all_documents)} documents collected ===")
+    count_by_type: dict = {}
+    for d in all_documents:
         t = d.metadata.get("type", "?")
-        conteggio[t] = conteggio.get(t, 0) + 1
-    for t, n in conteggio.items():
+        count_by_type[t] = count_by_type.get(t, 0) + 1
+    for t, n in count_by_type.items():
         print(f"  {t}: {n}")
 
-    if not tutti_i_documenti:
-        print("Nessun documento! Controlla connessione e URL.")
+    if not all_documents:
+        print("No documents collected! Check your connection and URLs.")
         return
 
-    # FASE 4 – Chunking
-    print("\n=== FASE 4: Chunking ===")
+    # PHASE 4 – Chunking
+    print("\n=== PHASE 4: Chunking ===")
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
         separators=["\n\n", "\n", " ", ""]
     )
-    chunks = splitter.split_documents(tutti_i_documenti)
-    print(f"  → {len(chunks)} chunk totali da indicizzare")
+    chunks = splitter.split_documents(all_documents)
+    print(f"  → {len(chunks)} total chunks to index")
 
-    # FASE 5 – Embedding + Vector Store
-    print("\n=== FASE 5: Creazione Vector Store (Chroma + BAAI/bge-m3 su CUDA) ===")
+    # PHASE 5 – Embedding + Vector Store
+    print("\n=== PHASE 5: Build vector store (Chroma + BAAI/bge-m3 on CUDA) ===")
     embeddings = HuggingFaceEmbeddings(
         model_name="BAAI/bge-m3",
-        model_kwargs={"device": "cuda"}, # <-- Sfruttiamo la tua GPU nuova!
+        model_kwargs={"device": "cuda"},
         encode_kwargs={"normalize_embeddings": True}
     )
-    
+    print(f"Running on device: {embeddings.model_kwargs['device']}")
+
     Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
         persist_directory="./diem_chroma_db"
     )
-    print(f"\n✅ Fatto! Vector store salvato in './diem_chroma_db' con {len(chunks)} vettori.")
+    print(f"\n✅ Done! Vector store saved in './diem_chroma_db' with {len(chunks)} vectors.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,25 @@
+# LangChain and LangGraph ecosystem
+langchain-ollama
+langchain-chroma
+langchain-core
+langchain-huggingface
+langchain-text-splitters
+langgraph
+
+# Embeddings and Models
+sentence-transformers
+pydantic
+
+# Web Scraping and Document Processing
+requests
+beautifulsoup4
+pypdf     
+
+# GUI
+gradio
+
+# Install all dependencies using pip:
+# pip install -r requirements.txt
+
+# Then: 
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --force-reinstall   

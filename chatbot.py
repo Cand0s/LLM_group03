@@ -50,7 +50,7 @@ class AgentState(TypedDict):
     domain_check: str               # "in_domain" | "out_of_domain"
     retrieval_grade: str            # "relevant" | "not_relevant"
     hallucination_grade: str        # "grounded" | "hallucinated"
-    retry_count: int                # number of retrieval attempts
+    retry_count: int                # used for hallucination regeneration loops
 
 
 # ──────────────────────────────────────────────
@@ -88,61 +88,16 @@ def guardrail_input(state: AgentState) -> AgentState:
     return {**state, "domain_check": domain}
 
 
-def route_after_domain_check(state: AgentState) -> Literal["rewrite_query", "out_of_domain_response"]:
+def route_after_domain_check(state: AgentState) -> Literal["retrieve", "out_of_domain_response"]:
     if state["domain_check"] == "out_of_domain":
         return "out_of_domain_response"
-    return "rewrite_query"
+    return "retrieve"
 
 
 # ──────────────────────────────────────────────
-# 4. QUERY REWRITER – contextualize follow-up questions
+# 4. QUERY REWRITER – (Currently bypassed in graph, kept for future use)
 # ──────────────────────────────────────────────
-rewrite_prompt = ChatPromptTemplate.from_template("""
-You are a STRICTLY SYNTACTIC linguistic analyzer. Your ONLY task is to make the "Follow-up Question" self-contained by resolving pronouns from the chat history.
-
-CRITICAL RULES:
-1. NO INVENTIONS: NEVER add adjectives, guess specific names, or insert details the user did not explicitly mention. Do not try to "correct" the user.
-2. EXACT MATCH FOR STANDALONE: If the question does not contain pronouns (he, she, it, they, his) or vague references to previous messages, YOU MUST RETURN IT EXACTLY AS IT IS. Do not alter a single word.
-3. TOPIC SHIFT: If the user changes the subject entirely, do not drag entities from the previous history into the new question.
-4. Return ONLY the final question, nothing else.
-
-Examples:
-- History: "Who is Prof. Rossi?" -> Follow-up: "What are his office hours?" -> Rewritten: "What are Prof. Rossi's office hours?"
-- History: "Who is Prof. Rossi?" -> Follow-up: "I want to do an Erasmus" -> Rewritten: "I want to do an Erasmus" (CORRECT: Topic shift, history ignored).
-- History: "Where is the canteen?" -> Follow-up: "Which equipment is available in the Robotics Laboratory?" -> Rewritten: "Which equipment is available in the Robotics Laboratory?" (CORRECT: No changes made, no adjectives added).
-
-Chat History:
-{chat_history}
-
-Follow-up Question: {question}
-Standalone Question:""")
-
-
-
-
-def rewrite_query(state: AgentState) -> AgentState:
-    """Rewrite the question using the chat history."""
-    history = state.get("chat_history", [])
-    
-    # If there's no history, there's nothing to rewrite
-    if not history:
-        return {**state, "rewritten_question": state["question"]}
-    
-    # Format history as a string
-    history_str = "\n".join([
-        f"User: {m.content}" if isinstance(m, HumanMessage) else f"Bot: {m.content}"
-        for m in history[-6:]  # last 3 turns
-    ])
-    
-    chain = rewrite_prompt | llm_judge | StrOutputParser()
-    rewritten = chain.invoke({
-        "chat_history": history_str,
-        "question": state["question"]
-    }).strip()
-    
-    print(f"[QUERY REWRITER] Original: '{state['question']}'")
-    print(f"[QUERY REWRITER] Rewritten: '{rewritten}'")
-    return {**state, "rewritten_question": rewritten}
+# (Codice omesso per brevità nel commento, ma puoi lasciarlo qui se vuoi riattivarlo un domani)
 
 
 # ──────────────────────────────────────────────
@@ -160,10 +115,11 @@ def retrieve_and_rerank(state: AgentState) -> AgentState:
     scores = reranker.predict(pairs)
     ranked = sorted(zip(initial_docs, scores), key=lambda x: x[1], reverse=True)
     
-    top_docs = [doc for doc, score in ranked[:5]]
+    top_k = 5
+    top_docs = [doc for doc, score in ranked[:top_k]]
     
-    print(f"\n[RETRIEVAL] Top 3 documents after re-ranking:")
-    for i, (doc, score) in enumerate(ranked[:3]):
+    print(f"\n[RETRIEVAL] Top {top_k} documents after re-ranking:")
+    for i, (doc, score) in enumerate(ranked[:top_k]):
         print(f"  {i+1}. Score: {score:.2f} | Source: {doc.metadata.get('source', 'N/A')}")
     
     return {**state, "documents": top_docs}
@@ -207,56 +163,13 @@ def grade_documents(state: AgentState) -> AgentState:
     retrieval_grade = "relevant" if relevant_docs else "not_relevant"
     return {**state, "documents": relevant_docs, "retrieval_grade": retrieval_grade}
 
-
-def route_after_retrieval(state: AgentState) -> Literal["generate", "retry_or_fallback"]:
-    retry_count = state.get("retry_count", 0)
-    
-    if state["retrieval_grade"] == "relevant":
-        return "generate"
-    elif retry_count < 2:
-        return "retry_or_fallback"
-    else:
-        # After 2 attempts, generate anyway (fallback behavior)
-        return "generate"
+# NOTA: La funzione route_after_retrieval è stata rimossa, andremo dritti al generatore.
 
 
 # ──────────────────────────────────────────────
-# 7. RETRY – reformulate the query and retry
+# 7. RETRY (Rimosso)
 # ──────────────────────────────────────────────
-retry_prompt = ChatPromptTemplate.from_template("""
-The previous search did not return relevant results for this question.
-Generate an alternative, more specific search query that might find 
-better results in a university department knowledge base.
-
-Original question: {question}
-Return ONLY the new search query, nothing else.
-
-Alternative query:""")
-
-def retry_retrieval(state: AgentState) -> AgentState:
-    """Generate an alternative query and retry retrieval."""
-    retry_count = state.get("retry_count", 0) + 1
-    print(f"[RETRY] Attempt {retry_count}...")
-    
-    chain = retry_prompt | llm_judge | StrOutputParser()
-    new_query = chain.invoke({"question": state["rewritten_question"]}).strip()
-    
-    print(f"[RETRY] New query: '{new_query}'")
-    
-    # Retrieval with the new query
-    initial_docs = retriever.invoke(new_query)
-    pairs = [[new_query, doc.page_content] for doc in initial_docs]
-    scores = reranker.predict(pairs)
-    ranked = sorted(zip(initial_docs, scores), key=lambda x: x[1], reverse=True)
-    top_docs = [doc for doc, score in ranked[:3]]
-    
-    return {
-        **state,
-        "rewritten_question": new_query,
-        "documents": top_docs,
-        "retrieval_grade": "relevant",  # forza il passaggio al grader
-        "retry_count": retry_count
-    }
+# Tutta la sezione 7 (retry_prompt e retry_retrieval) è stata rimossa.
 
 
 # ──────────────────────────────────────────────
@@ -390,10 +303,9 @@ workflow = StateGraph(AgentState)
 # Add nodes
 workflow.add_node("guardrail_input",        guardrail_input)
 workflow.add_node("out_of_domain_response", out_of_domain_response)
-workflow.add_node("rewrite_query",          rewrite_query)
+# workflow.add_node("rewrite_query",          rewrite_query) # Mantenuto commentato come avevi fatto tu
 workflow.add_node("retrieve",               retrieve_and_rerank)
 workflow.add_node("grade_documents",        grade_documents)
-workflow.add_node("retry_retrieval",        retry_retrieval)
 workflow.add_node("generate",               generate_answer)
 workflow.add_node("check_hallucination",    check_hallucination)
 workflow.add_node("regenerate",             regenerate_answer)
@@ -406,24 +318,21 @@ workflow.add_conditional_edges(
     "guardrail_input",
     route_after_domain_check,
     {
-        "rewrite_query":           "rewrite_query",
-        "out_of_domain_response":  "out_of_domain_response"
+        "retrieve":               "retrieve",
+        "out_of_domain_response": "out_of_domain_response"
     }
 )
 workflow.add_edge("out_of_domain_response", END)
-workflow.add_edge("rewrite_query",          "retrieve")
-workflow.add_edge("retrieve",               "grade_documents")
 
-workflow.add_conditional_edges(
-    "grade_documents",
-    route_after_retrieval,
-    {
-        "generate":           "generate",
-        "retry_or_fallback":  "retry_retrieval"
-    }
-)
-workflow.add_edge("retry_retrieval",    "grade_documents")
-workflow.add_edge("generate",           "check_hallucination")
+# Flusso Lineare Diretto:
+workflow.add_edge("retrieve", "grade_documents")
+
+# === MODIFICA CHIAVE QUI ===
+# Dal grader andiamo SEMPRE e DRITTI alla generazione!
+workflow.add_edge("grade_documents", "generate")
+# ==========================
+
+workflow.add_edge("generate", "check_hallucination")
 
 workflow.add_conditional_edges(
     "check_hallucination",

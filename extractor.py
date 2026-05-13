@@ -9,6 +9,7 @@ import json
 import logging
 from urllib.parse import urlparse, parse_qs, urljoin
 
+from sympy import re
 import urllib3
 import requests
 from bs4 import BeautifulSoup
@@ -24,7 +25,7 @@ from langchain_community.document_loaders import PyPDFLoader
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
-MAX_DEPTH_DIEM = 6
+MAX_DEPTH_DIEM = 4
 MAX_DEPTH_COURSES = 3
 FORBIDDEN_EXTENSIONS = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".ttf", ".json")
 
@@ -69,21 +70,17 @@ def extract_diem_prof_ids(staff_page_url: str) -> list[str]:
 
 
 
-def clean_html(raw_html: str) -> str:
+def clean_html(raw_html: str, url: str = "") -> str:
     if not raw_html:
         return ""
-
     soup = BeautifulSoup(raw_html, "html.parser")
-
     for tag in soup.find_all(["header", "nav"]):
         tag.decompose()
-
     footers = soup.find_all(
         lambda t: t.name in ("footer",) or
                   (t.name == "div" and t.get("id") in ("footer", "subfooter")) or
                   (t.name == "div" and "footer" in " ".join(t.get("class", [])))
     )
-    
     for footer in footers:
         for sibling in footer.find_next_siblings():
             sibling.decompose()
@@ -91,15 +88,20 @@ def clean_html(raw_html: str) -> str:
 
     result = trafilatura.extract(
         str(soup),
+        url=url,         
+        output_format="markdown",          
         include_tables=True,
-        include_links=True,
+        include_links=True,       
         include_images=False,
-        include_comments=False,
-        no_fallback=True,
-        favor_precision=True
+        include_comments=False,    # Includi eventuali sezioni commenti o note a margine
+        favor_precision=True,    # Disattiva il taglio chirurgico delle parti considerate "non centrali"
+        deduplicate=True,        # Disattiva la rimozione dei duplicati interni alla pagina
     )
 
+
     return result.strip() if result else ""
+
+
 
 
 
@@ -153,16 +155,13 @@ def crawl_diem_base() -> list[Document]:
         max_depth=MAX_DEPTH_DIEM,
         extractor=clean_html, 
         metadata_extractor=print_website_metadata,
+        exclude_dirs=["https://www.diem.unisa.it/en", "https://www.diem.unisa.it/en/"],
         prevent_outside=True
     )
     for doc in loader.load():
         source_url = doc.metadata.get("source", "").lower()
         
         if source_url.startswith("discard"):
-            continue
-        
-        if "/en/" in source_url or source_url.endswith("/en"):
-            print(f"      [SCARTATO - Inglese] {source_url}")
             continue
  
         doc.metadata["type"] = "html"
@@ -183,7 +182,7 @@ def crawl_structures() -> list[Document]:
             if r.status_code != 200:
                 continue
             
-            content = clean_html(r.text)
+            content = clean_html(r.text, url=url)
             if not content or not content.strip():
                 print(f"      [SKIPPED - Empty] {url}")
                 continue
@@ -227,12 +226,11 @@ def crawl_faculty() -> list[Document]:
             if url.endswith("/didattica") and not soup.find("table"):
                 print(f"      [SKIPPED - No courses found] {url}")
                 continue
-            
             if url.endswith("/home") and not soup.find("table"):
                 print(f"      [SKIPPED - No home page found] {url}")
                 continue
 
-            content = clean_html(r.text)
+            content = clean_html(r.text, url=url)
             if not content or not content.strip():
                 print(f"      [SKIPPED - Empty] {url}")
                 continue
@@ -243,9 +241,35 @@ def crawl_faculty() -> list[Document]:
             ))
             print(f"      [SUCCESS] {url}")
 
+            # === DEPTH 2: dettaglio singolo corso ===
+            # Solo dalle pagine /didattica, segui i link didattica?anno=X&id=X
+            if url.endswith("/didattica"):
+                course_links = set()
+                for a in soup.find_all("a", href=True):
+                    href = a["href"]
+                    full = urljoin(url, href).split("#")[0]
+                    if "didattica?anno=" in full and "id=" in full:
+                        course_links.add(full)
+
+                for course_url in course_links:
+                    try:
+                        rc = requests.get(course_url, verify=False, timeout=15)
+                        if rc.status_code != 200:
+                            continue
+                        course_content = clean_html(rc.text, url=course_url)
+                        if not course_content or not course_content.strip():
+                            continue
+                        docs_collected.append(Document(
+                            page_content=course_content,
+                            metadata={"source": course_url, "type": "html"}
+                        ))
+                        print(f"         [CORSO] {course_url}")
+                        time.sleep(0.3)
+                    except Exception as e:
+                        print(f"         [SKIPPED corso] {course_url} - {e}")
+
         except Exception as e:
             print(f"      [SKIPPED] {url} - {e}")
-
         time.sleep(0.5)
 
     print(f"  -> Extracted {len(docs_collected)} faculty documents")

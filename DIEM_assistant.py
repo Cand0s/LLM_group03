@@ -51,8 +51,10 @@ def predict(message, history):
         final_state = app.invoke(initial_state)
         return final_state["answer"]
     except Exception as e:
+        import traceback
         print(f"Error during graph execution: {e}")
-        return "Sorry, an internal error occurred while processing your request."
+        traceback.print_exc()
+        return f"Error: {str(e)}"
 
 # ─────────────────────────────────────────────
 #  CUSTOM CSS (Only for structural fixes)

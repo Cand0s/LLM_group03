@@ -1,23 +1,24 @@
 """
-DIEM Chatbot - Web Scraper & Vector Store Builder
+DIEM Chatbot - Web Scraper 
 """
 
 import os
 import ssl
+import tempfile
 import time
 import json
-import logging
 from urllib.parse import urlparse, parse_qs, urljoin
+import re
 
-from sympy import re
 import urllib3
 import requests
 from bs4 import BeautifulSoup
 import trafilatura
+import pymupdf4llm
+import pymupdf
 
 from langchain_core.documents import Document
 from langchain_community.document_loaders.recursive_url_loader import RecursiveUrlLoader
-from langchain_community.document_loaders import PyPDFLoader
 
 # ---------------------------------------------------------------------------
 # CONFIGURATION & GLOBAL STATE
@@ -91,7 +92,7 @@ def clean_html(raw_html: str, url: str = "") -> str:
         url=url,         
         output_format="markdown",          
         include_tables=True,
-        include_links=True,       
+        include_links=False,       
         include_images=False,
         include_comments=False,    # Includi eventuali sezioni commenti o note a margine
         favor_precision=True,    # Disattiva il taglio chirurgico delle parti considerate "non centrali"
@@ -202,11 +203,11 @@ def crawl_structures() -> list[Document]:
 
 
 
-def crawl_faculty() -> list[Document]:
+def crawl_professor_courses() -> list[Document]:
     print("\n=== PHASE 2: DIEM Professors on docenti.unisa.it ===")
     docs_collected = []
     staff_ids = extract_diem_prof_ids("https://www.diem.unisa.it/dipartimento/personale")
-    
+
     if not staff_ids:
         return docs_collected
 
@@ -223,34 +224,36 @@ def crawl_faculty() -> list[Document]:
 
             soup = BeautifulSoup(r.text, "html.parser")
 
-            if url.endswith("/didattica") and not soup.find("table"):
-                print(f"      [SKIPPED - No courses found] {url}")
-                continue
-            if url.endswith("/home") and not soup.find("table"):
-                print(f"      [SKIPPED - No home page found] {url}")
-                continue
+            # ── /home ────────────────────────────────────────────────────
+            if url.endswith("/home"):
+                if not soup.find("table"):
+                    print(f"      [SKIPPED - No home page found] {url}")
+                    continue
+                content = clean_html(r.text, url=url)
+                if not content or not content.strip():
+                    print(f"      [SKIPPED - Empty] {url}")
+                    continue
+                docs_collected.append(Document(
+                    page_content=content,
+                    metadata={"source": url, "type": "html"}
+                ))
+                print(f"      [SUCCESS] {url}")
 
-            content = clean_html(r.text, url=url)
-            if not content or not content.strip():
-                print(f"      [SKIPPED - Empty] {url}")
-                continue
-
-            docs_collected.append(Document(
-                page_content=content,
-                metadata={"source": url, "type": "html"}
-            ))
-            print(f"      [SUCCESS] {url}")
-
-            # === DEPTH 2: dettaglio singolo corso ===
-            # Solo dalle pagine /didattica, segui i link didattica?anno=X&id=X
-            if url.endswith("/didattica"):
+            # ── /didattica ───────────────────────────────────────────────
+            # Non salva la pagina principale (solo codici, niente nomi corso)
+            # Salva SOLO i dettagli dei singoli corsi cliccabili
+            elif url.endswith("/didattica"):
                 course_links = set()
                 for a in soup.find_all("a", href=True):
-                    href = a["href"]
-                    full = urljoin(url, href).split("#")[0]
+                    full = urljoin(url, a["href"]).split("#")[0]
                     if "didattica?anno=" in full and "id=" in full:
                         course_links.add(full)
 
+                if not course_links:
+                    print(f"      [SKIPPED - No courses found] {url}")
+                    continue
+
+                print(f"      [DIDATTICA] {url} → {len(course_links)} corsi")
                 for course_url in course_links:
                     try:
                         rc = requests.get(course_url, verify=False, timeout=15)
@@ -263,16 +266,16 @@ def crawl_faculty() -> list[Document]:
                             page_content=course_content,
                             metadata={"source": course_url, "type": "html"}
                         ))
-                        print(f"         [CORSO] {course_url}")
+                        print(f"         [COURSE] {course_url}")
                         time.sleep(0.3)
                     except Exception as e:
-                        print(f"         [SKIPPED corso] {course_url} - {e}")
+                        print(f"         [SKIPPED course] {course_url} - {e}")
 
         except Exception as e:
             print(f"      [SKIPPED] {url} - {e}")
         time.sleep(0.5)
 
-    print(f"  -> Extracted {len(docs_collected)} faculty documents")
+    print(f"  -> Extracted {len(docs_collected)} professor documents")
     return docs_collected
 
 
@@ -293,15 +296,23 @@ def crawl_courses() -> list[Document]:
                 prevent_outside=True
             )
             docs = course_loader.load()
+            
             for doc in docs:
                 source_url = doc.metadata.get("source", "").lower()
                 
+                # Scarta le pagine classificate come discard (es. CSS, JS)
+                if source_url.startswith("discard"):
+                    continue
+
+                # Scarta le pagine in inglese
                 if "/en/" in source_url or source_url.endswith("/en"):
                     print(f"      [SKIPPED - English] {source_url}")
                     continue
                
+                # Se arriva fin qui, è una pagina valida! Aggiungi il tipo e salvala.
                 doc.metadata["type"] = "html"
-            docs_collected.extend(docs)
+                docs_collected.append(doc)  # <-- Usa append qui!
+                
         print("  -> Corsi estratti correttamente.")
     else:
         print("  Nessun link ai corsi trovato.")
@@ -310,33 +321,54 @@ def crawl_courses() -> list[Document]:
 
 
 
-def download_pdfs() -> list[Document]:
-    print(f"\n=== PHASE 4: Download {len(DISCOVERED_PDF)} PDF intercepted ===")
-    docs_collected = []
-    logging.getLogger("pypdf").setLevel(logging.ERROR)
-    
-    for pdf_url in list(DISCOVERED_PDF): 
-            try:
-                pdf_loader = PyPDFLoader(pdf_url)
-                pages = pdf_loader.load()
-                
-                # Uniamo il testo di tutte le pagine per evitare che il deduplicatore le elimini
-                testo_completo = "\n\n".join([p.page_content for p in pages])
-                
-                if testo_completo.strip():
-                    merged_doc = Document(
-                        page_content=testo_completo,
-                        metadata={"source": pdf_url, "type": "pdf"}
-                    )
-                    docs_collected.append(merged_doc)
-                    print(f"      [OK PDF] {pdf_url} ({len(pages)} pagine unite)")
-                else:
-                    print(f"      [VUOTO] PDF senza testo decifrabile: {pdf_url}")
 
-            except Exception as e:
-                print(f"      [SKIPPED] PDF error: {pdf_url} — {e}")
-                
+
+def download_pdfs(use_markdown: bool = True) -> list[Document]:
+    print(f"\n=== PHASE 4: Download {len(DISCOVERED_PDF)} PDF intercepted ===")
+    print(f"  → Modalità estrazione: {'Markdown' if use_markdown else 'Testo semplice'}")
+    docs_collected = []
+
+    for pdf_url in DISCOVERED_PDF:
+        try:
+            r = requests.get(pdf_url, verify=False, timeout=20)
+            if r.status_code != 200:
+                print(f"      [SKIPPED] {pdf_url}")
+                continue
+
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(r.content)
+                tmp_path = tmp.name
+
+            if use_markdown:
+                text = pymupdf4llm.to_markdown(tmp_path)
+                if text:
+                    text = re.sub(r"\*\*==> picture \[.*?\] intentionally omitted <==\*\*\s*", "", text)
+                    text = text.replace('\u2028', '\n').replace('\u2029', '\n\n')
+            else:
+                # Testo semplice: estrae pagina per pagina e le unisce
+              
+                doc = pymupdf.open(tmp_path)
+                text = "\n".join(page.get_text() for page in doc)
+                doc.close()
+
+            os.unlink(tmp_path)
+
+            if not text or not text.strip():
+                print(f"      [VUOTO] {pdf_url}")
+                continue
+
+            docs_collected.append(Document(
+                page_content=text,
+                metadata={"source": pdf_url, "type": "pdf"}
+            ))
+            print(f"      [OK PDF] {pdf_url}")
+
+        except Exception as e:
+            print(f"      [SKIPPED] {pdf_url} — {e}")
+
     return docs_collected
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -412,9 +444,9 @@ def main():
 
     all_documents.extend(crawl_diem_base())
     all_documents.extend(crawl_structures())
-    all_documents.extend(crawl_faculty())
+    all_documents.extend(crawl_professor_courses())
     all_documents.extend(crawl_courses())
-    all_documents.extend(download_pdfs())
+    all_documents.extend(download_pdfs(use_markdown=False))
 
     all_documents = deduplicate_documents(all_documents)
     

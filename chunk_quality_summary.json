@@ -1,200 +1,199 @@
 {
   "parent_summary": {
-    "total": 11240,
+    "total": 10090,
     "length_stats": {
-      "count": 11240,
+      "count": 10090,
       "min": 114,
-      "max": 1594,
-      "mean": 838.9,
-      "median": 878.0,
-      "stdev": 410.8
+      "max": 1786,
+      "mean": 921.8,
+      "median": 931.0,
+      "stdev": 483.5
     },
     "score_stats": {
-      "count": 11240,
-      "min": 80,
+      "count": 10090,
+      "min": 90,
       "max": 100,
-      "mean": 97.4,
+      "mean": 96.7,
       "median": 95.0,
-      "stdev": 2.6
+      "stdev": 3.2
     },
-    "errors": 1,
-    "warnings": 5892,
+    "errors": 0,
+    "warnings": 6733,
     "top_issues": [
       [
         "WARNING:REPETITIVE",
-        3643
+        3593
       ],
       [
         "WARNING:BELOW_IDEAL",
-        2249
+        2039
       ],
       [
-        "ERROR:FEW_WORDS",
-        1
+        "WARNING:ABOVE_IDEAL",
+        1101
       ]
     ],
     "quality_dist": {
-      "✅ Ottimo": 11239,
-      "⚠️  Discreto": 1
+      "✅ Ottimo": 10090
     },
     "top_sources": [
       [
         "https://www.diem.unisa.it/ricerca/progetti-finanziati",
-        329
+        251
       ],
       [
         "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2024/06227.pdf",
-        204
+        181
       ],
       [
         "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2025/IE227.pdf",
-        179
+        160
       ],
       [
         "http://www.unisa.it/uploads/rescue/__schede-sua/2024/0650107303300001.pdf",
-        169
-      ],
-      [
-        "http://www.unisa.it/uploads/rescue/__schede-sua/2023/0650107303300001.pdf",
-        150
-      ],
-      [
-        "http://www.unisa.it/uploads/rescue/__schede-sua/2022/0650107303300001.pdf",
-        149
+        159
       ],
       [
         "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2023/06227.pdf",
-        149
-      ],
-      [
-        "https://www.diem.unisa.it/uploads/rescue/472/734/dpd-2023-diem-1-.pdf",
-        149
+        148
       ],
       [
         "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2019/06227.pdf",
-        148
+        142
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2022/0650107303300001.pdf",
+        138
       ],
       [
         "http://www.unisa.it/uploads/rescue/__schede-sua/2021/0650106200800001.pdf",
-        148
+        138
+      ],
+      [
+        "https://www.diem.unisa.it/uploads/rescue/472/734/dpd-2023-diem-1-.pdf",
+        138
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2023/0650107303300001.pdf",
+        137
       ]
     ]
   },
   "child_summary": {
-    "total": 36592,
+    "total": 30055,
     "length_stats": {
-      "count": 36592,
-      "min": 42,
-      "max": 878,
-      "mean": 395.0,
-      "median": 408.0,
-      "stdev": 120.8
+      "count": 30055,
+      "min": 47,
+      "max": 976,
+      "mean": 441.2,
+      "median": 467,
+      "stdev": 136.4
     },
     "score_stats": {
-      "count": 36592,
+      "count": 30055,
       "min": 65,
       "max": 100,
-      "mean": 98.9,
-      "median": 100.0,
-      "stdev": 2.5
+      "mean": 98.0,
+      "median": 100,
+      "stdev": 3.2
     },
-    "errors": 148,
-    "warnings": 6502,
+    "errors": 256,
+    "warnings": 10362,
     "top_issues": [
       [
-        "WARNING:REPETITIVE",
-        2898
-      ],
-      [
         "WARNING:ABOVE_IDEAL",
-        2596
+        6710
       ],
       [
-        "WARNING:BELOW_IDEAL",
-        1008
+        "WARNING:REPETITIVE",
+        2976
       ],
       [
         "INFO:NO_CONTEXT_INJECTION",
-        870
+        780
+      ],
+      [
+        "WARNING:BELOW_IDEAL",
+        676
       ],
       [
         "ERROR:TOO_LONG",
-        86
+        224
       ],
       [
         "ERROR:TOO_SHORT",
-        45
+        27
       ],
       [
         "ERROR:FEW_WORDS",
-        17
+        5
       ]
     ],
     "quality_dist": {
-      "✅ Ottimo": 36512,
-      "⚠️  Discreto": 80
+      "✅ Ottimo": 29963,
+      "⚠️  Discreto": 92
     },
     "top_sources": [
       [
         "https://www.diem.unisa.it/ricerca/progetti-finanziati",
-        1565
+        1050
       ],
       [
         "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2024/06227.pdf",
-        734
+        634
       ],
       [
         "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2025/IE227.pdf",
-        632
+        550
       ],
       [
         "http://www.unisa.it/uploads/rescue/__schede-sua/2024/0650107303300001.pdf",
-        542
+        489
       ],
       [
         "http://www.unisa.it/uploads/rescue/__schede-sua/2025/0650107303300001.pdf",
-        499
+        453
       ],
       [
         "http://www.unisa.it/uploads/rescue/__schede-sua/2022/0650107303300001.pdf",
-        487
+        434
       ],
       [
         "http://www.unisa.it/uploads/rescue/__schede-sua/2023/0650107303300001.pdf",
-        487
-      ],
-      [
-        "http://www.unisa.it/uploads/rescue/__schede-sua/2021/0650107303300001.pdf",
-        481
+        430
       ],
       [
         "http://www.unisa.it/uploads/rescue/__schede-sua/2025/0650106200800001.pdf",
-        480
+        429
       ],
       [
-        "http://www.unisa.it/uploads/rescue/__schede-sua/2024/0650106200800001.pdf",
-        471
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2021/0650107303300001.pdf",
+        427
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2021/0650106200800001.pdf",
+        417
       ]
     ]
   },
   "structure": {
-    "total_parents": 11240,
-    "total_children": 36592,
+    "total_parents": 10090,
+    "total_children": 30055,
     "orphan_children": 0,
     "parents_without_children": 0,
     "children_per_parent": {
-      "count": 11240,
+      "count": 10090,
       "min": 1,
-      "max": 11,
-      "mean": 3.3,
+      "max": 9,
+      "mean": 3.0,
       "median": 3.0,
-      "stdev": 1.7
+      "stdev": 1.6
     },
-    "high_overlap_pairs": 23086,
-    "total_consecutive_pairs": 25352,
+    "high_overlap_pairs": 17220,
+    "total_consecutive_pairs": 19965,
     "overlap_stats": {
-      "count": 25352,
-      "min": 0.2,
+      "count": 19965,
+      "min": 0.0,
       "max": 1.0,
       "mean": 0.6,
       "median": 0.6,

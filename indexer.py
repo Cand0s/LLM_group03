@@ -41,15 +41,15 @@ PARENT_STORE_PATH     = "./diem_chroma_db/parent_store.json"
 
 CHUNK_CONFIG = {
     "html": {
-        "parent_size": 1000,
+        "parent_size": 1250,
         "parent_overlap": 100,
-        "child_size": 300,
+        "child_size": 400,
         "child_overlap": 80
     },
     "pdf": {
-        "parent_size": 1500,   # Larger fallback to accommodate long legal sections/tables
+        "parent_size": 1700,   # Larger fallback to accommodate long legal sections/tables
         "parent_overlap": 300,
-        "child_size": 450,     # Larger children to capture dense academic language
+        "child_size": 500,     # Larger children to capture dense academic language
         "child_overlap": 120
     }
 }
@@ -69,12 +69,6 @@ debug = True
 # Min length (chars) to retain a parent chunk
 PARENT_MIN_CHARS = 80
 
-BOILERPLATE_TABLE_KEYWORDS = [
-    "importo", "periodo", "responsabile", "struttura",
-    "tipo di finanziamento", "finanziatori", "proroga",
-    "coordinatore progetto"
-]
-BOILERPLATE_MAX_UNIQUE_RATIO = 0.45   # unicità parole < 45% -> boilerplate
 
 def _clean_previous_outputs() -> None:
     """Remove persisted indexing outputs so each run starts from a clean slate."""
@@ -257,7 +251,7 @@ def _make_section_context(parent_metadata: dict, source_title: str) -> str:
     """
     Costruisce la stringa "\\nSection: ..." per il context injection.
 
-    FIX-F: esclude dal breadcrumb qualsiasi header che:
+    esclude dal breadcrumb qualsiasi header che:
         - coincida (case-insensitive) con il titolo della source (ridondante)
         - sia una URL grezza
         - sia uguale al breadcrumb dell'header precedente (evita ripetizioni)
@@ -290,29 +284,6 @@ def _make_section_context(parent_metadata: dict, source_title: str) -> str:
     if hierarchy.strip().lower() == _norm_source:
         return ""
     return f"\nSection: {hierarchy}"
-
-
-def _is_boilerplate_table_row(text: str) -> bool:
-    """
-    Restituisce True se il chunk è quasi certamente una riga tabulare boilerplate
-    (es. "Importo | X euro | Periodo | Y") priva di valore semantico autonomo.
- 
-    Criteri combinati:
-        - Contiene almeno 2 keyword tabulari note
-        - Ha un basso rapporto di parole uniche (testo strutturato/ripetitivo)
-        - E' breve (< 350 chars)
-    """
-    if len(text) >= 350:
-        return False
-    text_lower = text.lower()
-    kw_matches = sum(1 for kw in BOILERPLATE_TABLE_KEYWORDS if kw in text_lower)
-    if kw_matches < 2:
-        return False
-    words = re.findall(r"\b\w+\b", text_lower)
-    if not words:
-        return True
-    unique_ratio = len(set(words)) / len(words)
-    return unique_ratio < BOILERPLATE_MAX_UNIQUE_RATIO
 
 
 
@@ -493,12 +464,6 @@ def split_into_parents(documents: List[Document]) -> List[Document]:
 def split_into_children(parents: List[Document]) -> List[Document]:
     """
     Split each Parent Chunk into smaller Child Chunks.
-
-    Fix applicati:
-      FIX-B  Usa il titolo leggibile nel Document: header dei child
-      FIX-D  Filtra child boilerplate tabulari (Importo/Periodo quasi-identici)
-      FIX-E  Separatori sentence-aware + keep_separator=True
-      FIX-F  Breadcrumb Section deduplicato da _make_section_context()
     """
     children: List[Document] = []
     skipped_short_parent = 0
@@ -516,13 +481,13 @@ def split_into_children(parents: List[Document]) -> List[Document]:
     }
 
     print(f"\n[3/5] Creating Child Chunks...")
-
+    
     for parent in parents:
         doc_type = parent.metadata.get("type", "html")
         config   = CHUNK_CONFIG.get(doc_type, CHUNK_CONFIG["html"])
         child_splitter = child_splitters[doc_type]
-
         source_url     = parent.metadata.get("source", "unknown")
+        
         # FIX-B: usa il titolo leggibile
         readable_title = parent.metadata.get("title", _make_readable_title(source_url))
 
@@ -557,14 +522,6 @@ def split_into_children(parents: List[Document]) -> List[Document]:
 
         for child_index, child in enumerate(child_docs):
             raw_child_text = child.page_content
-
-            # FIX-D: salta child boilerplate tabulari
-            if _is_boilerplate_table_row(raw_child_text):
-                skipped_boilerplate += 1
-                if debug and skipped_boilerplate <= 5:
-                    print(f"    [DEBUG] Boilerplate child skipped ({len(raw_child_text)} chars): "
-                            f"{raw_child_text[:80]!r}")
-                continue
 
             enriched_text = (
                 f"Document: {readable_title}{section_context}\nContent: {raw_child_text}"
@@ -613,8 +570,7 @@ def _index_documents_with_progress(db: Chroma, documents: List[Document], ids: L
             {k: (v if v is not None else "") for k, v in doc.metadata.items()}
             for doc in batch_docs
         ]
-
-        # FIX #5: upsert invece di add — idempotente su run multiple
+        # upsert invece di add — idempotente su run multiple
         db._collection.upsert(
             ids=batch_ids,
             embeddings=batch_embeddings,

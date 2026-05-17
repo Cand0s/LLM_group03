@@ -1,0 +1,205 @@
+{
+  "parent_summary": {
+    "total": 11240,
+    "length_stats": {
+      "count": 11240,
+      "min": 114,
+      "max": 1594,
+      "mean": 838.9,
+      "median": 878.0,
+      "stdev": 410.8
+    },
+    "score_stats": {
+      "count": 11240,
+      "min": 80,
+      "max": 100,
+      "mean": 97.4,
+      "median": 95.0,
+      "stdev": 2.6
+    },
+    "errors": 1,
+    "warnings": 5892,
+    "top_issues": [
+      [
+        "WARNING:REPETITIVE",
+        3643
+      ],
+      [
+        "WARNING:BELOW_IDEAL",
+        2249
+      ],
+      [
+        "ERROR:FEW_WORDS",
+        1
+      ]
+    ],
+    "quality_dist": {
+      "✅ Ottimo": 11239,
+      "⚠️  Discreto": 1
+    },
+    "top_sources": [
+      [
+        "https://www.diem.unisa.it/ricerca/progetti-finanziati",
+        329
+      ],
+      [
+        "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2024/06227.pdf",
+        204
+      ],
+      [
+        "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2025/IE227.pdf",
+        179
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2024/0650107303300001.pdf",
+        169
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2023/0650107303300001.pdf",
+        150
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2022/0650107303300001.pdf",
+        149
+      ],
+      [
+        "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2023/06227.pdf",
+        149
+      ],
+      [
+        "https://www.diem.unisa.it/uploads/rescue/472/734/dpd-2023-diem-1-.pdf",
+        149
+      ],
+      [
+        "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2019/06227.pdf",
+        148
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2021/0650106200800001.pdf",
+        148
+      ]
+    ]
+  },
+  "child_summary": {
+    "total": 36592,
+    "length_stats": {
+      "count": 36592,
+      "min": 42,
+      "max": 878,
+      "mean": 395.0,
+      "median": 408.0,
+      "stdev": 120.8
+    },
+    "score_stats": {
+      "count": 36592,
+      "min": 65,
+      "max": 100,
+      "mean": 98.9,
+      "median": 100.0,
+      "stdev": 2.5
+    },
+    "errors": 148,
+    "warnings": 6502,
+    "top_issues": [
+      [
+        "WARNING:REPETITIVE",
+        2898
+      ],
+      [
+        "WARNING:ABOVE_IDEAL",
+        2596
+      ],
+      [
+        "WARNING:BELOW_IDEAL",
+        1008
+      ],
+      [
+        "INFO:NO_CONTEXT_INJECTION",
+        870
+      ],
+      [
+        "ERROR:TOO_LONG",
+        86
+      ],
+      [
+        "ERROR:TOO_SHORT",
+        45
+      ],
+      [
+        "ERROR:FEW_WORDS",
+        17
+      ]
+    ],
+    "quality_dist": {
+      "✅ Ottimo": 36512,
+      "⚠️  Discreto": 80
+    },
+    "top_sources": [
+      [
+        "https://www.diem.unisa.it/ricerca/progetti-finanziati",
+        1565
+      ],
+      [
+        "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2024/06227.pdf",
+        734
+      ],
+      [
+        "https://corsi.unisa.it/uploads/rescue/__regolamenti-cds/2025/IE227.pdf",
+        632
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2024/0650107303300001.pdf",
+        542
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2025/0650107303300001.pdf",
+        499
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2022/0650107303300001.pdf",
+        487
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2023/0650107303300001.pdf",
+        487
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2021/0650107303300001.pdf",
+        481
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2025/0650106200800001.pdf",
+        480
+      ],
+      [
+        "http://www.unisa.it/uploads/rescue/__schede-sua/2024/0650106200800001.pdf",
+        471
+      ]
+    ]
+  },
+  "structure": {
+    "total_parents": 11240,
+    "total_children": 36592,
+    "orphan_children": 0,
+    "parents_without_children": 0,
+    "children_per_parent": {
+      "count": 11240,
+      "min": 1,
+      "max": 11,
+      "mean": 3.3,
+      "median": 3.0,
+      "stdev": 1.7
+    },
+    "high_overlap_pairs": 23086,
+    "total_consecutive_pairs": 25352,
+    "overlap_stats": {
+      "count": 25352,
+      "min": 0.2,
+      "max": 1.0,
+      "mean": 0.6,
+      "median": 0.6,
+      "stdev": 0.2
+    },
+    "parents_without_children_ids": []
+  }
+}
